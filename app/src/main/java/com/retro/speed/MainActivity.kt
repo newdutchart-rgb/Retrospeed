@@ -17,7 +17,6 @@ import android.os.VibratorManager
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -28,7 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.asin
@@ -45,9 +43,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var speedText: TextView
     private lateinit var speedUnit: TextView
     private lateinit var limitText: TextView
-    private lateinit var limitLabel: TextView
     private lateinit var statusText: TextView
-    private lateinit var limitRow: LinearLayout
     private lateinit var speedPanel: View
 
     private var currentLimitKmh = 50
@@ -55,15 +51,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var speedCounter = 0
     private var wasOverLimit = false
     private var flashOn = false
-    private var autoMode = true
     private var lastQueryTime = 0L
     private var lastQueryLat = 0.0
     private var lastQueryLon = 0.0
     private var limitQueryInProgress = false
 
     private val scope = CoroutineScope(Dispatchers.Main)
-    private val limitButtons = mutableListOf<Pair<TextView, Int>>()
-    private var autoButton: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,9 +66,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         speedText = findViewById(R.id.speedText)
         speedUnit = findViewById(R.id.speedUnit)
         limitText = findViewById(R.id.limitText)
-        limitLabel = findViewById(R.id.limitLabel)
         statusText = findViewById(R.id.statusText)
-        limitRow = findViewById(R.id.limitRow)
         speedPanel = findViewById(R.id.speedPanel)
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -87,15 +78,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
 
-        buildLimitButtons()
-        autoMode = savedInstanceState?.getBoolean("autoMode", true) ?: true
-        selectAuto(savedInstanceState?.getInt("limit", 50) ?: 50, restore = true)
+        currentLimitKmh = savedInstanceState?.getInt("limit", 50) ?: 50
+        limitText.text = currentLimitKmh.toString()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("limit", currentLimitKmh)
-        outState.putBoolean("autoMode", autoMode)
     }
 
     override fun onResume() {
@@ -152,47 +141,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun buildLimitButtons() {
-        val limits = listOf(30, 50, 60, 80, 100, 120)
-        limitRow.removeAllViews()
-        limitButtons.clear()
-
-        val auto = layoutInflater.inflate(R.layout.item_limit_button, limitRow, false) as TextView
-        auto.text = getString(R.string.auto_button)
-        auto.setBackgroundResource(R.drawable.bg_auto_button)
-        auto.setOnClickListener { selectAuto() }
-        limitRow.addView(auto)
-        autoButton = auto
-
-        limits.forEach { limit ->
-            val btn = layoutInflater.inflate(R.layout.item_limit_button, limitRow, false) as TextView
-            btn.text = limit.toString()
-            btn.setOnClickListener { selectLimit(limit) }
-            limitRow.addView(btn)
-            limitButtons.add(btn to limit)
-        }
-    }
-
-    private fun selectLimit(limit: Int) {
-        autoMode = false
-        applyLimit(limit)
-    }
-
-    private fun selectAuto(initial: Int = 50, restore: Boolean = false) {
-        autoMode = true
-        applyLimit(if (restore) initial else currentLimitKmh)
-    }
-
-    private fun applyLimit(limit: Int) {
-        currentLimitKmh = limit
-        limitText.text = limit.toString()
-        limitLabel.text =
-            if (autoMode) getString(R.string.auto_label) else getString(R.string.limit_label)
-        limitButtons.forEach { (btn, value) -> btn.isSelected = !autoMode && value == limit }
-        autoButton?.isSelected = autoMode
-        updateSpeedColors()
-    }
-
     override fun onLocationChanged(location: Location) {
         val speedKmh = (location.speed * 3.6).roundToInt()
         currentSpeedKmh = speedKmh
@@ -212,7 +160,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
             }
         speedCounter = speedKmh.coerceAtLeast(0)
 
-        if (autoMode && hasLocationPermission()) {
+        if (hasLocationPermission()) {
             maybeQuerySpeedLimit(location.latitude, location.longitude)
         }
         updateSpeedColors()
@@ -351,7 +299,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
             speedText.setTextColor(Color.parseColor("#FF6E40"))
             speedUnit.setTextColor(Color.parseColor("#FFCCBC"))
             limitText.setTextColor(Color.parseColor("#FFD166"))
-            limitLabel.setTextColor(Color.parseColor("#FFE0B2"))
             if (!wasOverLimit) {
                 wasOverLimit = true
                 buzz()
@@ -361,8 +308,8 @@ class MainActivity : AppCompatActivity(), LocationListener {
         } else {
             speedPanel.setBackgroundResource(R.drawable.bg_speed_panel)
             speedPanel.alpha = 1f
-            val compliant = currentSpeedKmh > 0
-            if (compliant) {
+            val moving = currentSpeedKmh > 0
+            if (moving) {
                 speedText.setTextColor(Color.parseColor("#9CCC65"))
                 speedUnit.setTextColor(Color.parseColor("#C5E1A5"))
             } else {
@@ -370,7 +317,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 speedUnit.setTextColor(Color.parseColor("#FFCC80"))
             }
             limitText.setTextColor(Color.parseColor("#FFF3C4"))
-            limitLabel.setTextColor(Color.parseColor("#FFE0B2"))
             wasOverLimit = false
         }
     }

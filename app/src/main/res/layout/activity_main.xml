@@ -82,7 +82,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="@string/limit_label"
+                android:text="@string/auto_label"
                 android:textColor="@color/retroCream"
                 android:textSize="14sp"
                 android:textStyle="bold"
@@ -98,29 +98,6 @@
                 android:textStyle="bold"
                 android:fontFamily="monospace" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/limitHint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/limit_hint"
-            android:textColor="@color/retroOlive"
-            android:textSize="11sp"
-            android:letterSpacing="0.2"
-            android:layout_marginTop="4dp" />
-
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:id="@+id/limitRow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
     </LinearLayout>
 
     <TextView

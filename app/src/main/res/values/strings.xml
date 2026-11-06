@@ -2,15 +2,12 @@
 <resources>
     <string name="app_name">RetroSpeed</string>
     <string name="speed_unit">KM/U</string>
-    <string name="limit_label">MAX. TOEGESTANE</string>
-    <string name="limit_hint">KIES JE MAX. SNELHEID</string>
+    <string name="auto_label">MAX. TOEGESTANE (AUTO · OSM)</string>
     <string name="status_searching">GPS aan het zoeken…</string>
     <string name="status_gps_fix">GPS-verbinding actief</string>
     <string name="status_gps_off">GPS staat uit — zet locatie aan!</string>
     <string name="status_no_permission">Geef locatietoegang om de snelheid te meten</string>
-    <string name="tagline">FEEL THE ROAD · 1975 · v1.1</string>
-    <string name="auto_label">MAX. TOEGESTANE (AUTO)</string>
-    <string name="auto_button">AUTO</string>
     <string name="status_auto_ok">Limiet automatisch opgehaald (OSM)</string>
-    <string name="status_auto_none">Geen snelheidslimiet gevonden — handmatig kiezen</string>
+    <string name="status_auto_none">Geen snelheidslimiet gevonden — laatste bekende wordt gebruikt</string>
+    <string name="tagline">FEEL THE ROAD · 1975 · v1.2</string>
 </resources>
