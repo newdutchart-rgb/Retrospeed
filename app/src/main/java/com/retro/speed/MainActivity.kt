@@ -159,6 +159,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
         val auto = layoutInflater.inflate(R.layout.item_limit_button, limitRow, false) as TextView
         auto.text = getString(R.string.auto_button)
+        auto.setBackgroundResource(R.drawable.bg_auto_button)
         auto.setOnClickListener { selectAuto() }
         limitRow.addView(auto)
         autoButton = auto
