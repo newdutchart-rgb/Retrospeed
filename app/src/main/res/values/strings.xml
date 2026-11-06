@@ -9,5 +9,5 @@
     <string name="status_no_permission">Geef locatietoegang om de snelheid te meten</string>
     <string name="status_auto_ok">Limiet automatisch opgehaald (OSM)</string>
     <string name="status_auto_none">Geen snelheidslimiet gevonden — laatste bekende wordt gebruikt</string>
-    <string name="tagline">FEEL THE ROAD · 1975 · v1.2</string>
+    <string name="tagline">FEEL THE ROAD · 1975 · v1.3</string>
 </resources>
