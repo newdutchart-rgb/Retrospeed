@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var wasOverLimit = false
     private var flashOn = false
     private var lastQueryTime = 0L
+    private var lastGpsFixTime = 0L
     private var lastQueryLat = 0.0
     private var lastQueryLon = 0.0
     private var limitQueryInProgress = false
@@ -129,6 +130,17 @@ class MainActivity : AppCompatActivity(), LocationListener {
             0f,
             this
         )
+        if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            try {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    5000L,
+                    0f,
+                    this
+                )
+            } catch (_: SecurityException) {
+            }
+        }
     }
 
     private fun hasLocationPermission(): Boolean =
@@ -153,6 +165,17 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        if (location.provider != LocationManager.GPS_PROVIDER) {
+            val gpsStale = lastGpsFixTime == 0L ||
+                System.currentTimeMillis() - lastGpsFixTime > 30_000L
+            if (gpsStale && hasLocationPermission()) {
+                statusText.text = getString(R.string.status_network_approx)
+                maybeQuerySpeedLimit(location.latitude, location.longitude, location.accuracy, location.bearing)
+            }
+            return
+        }
+
+        lastGpsFixTime = System.currentTimeMillis()
         val speedKmh = (location.speed * 3.6).roundToInt()
         currentSpeedKmh = speedKmh
         if (location.accuracy > 25f) {
@@ -195,13 +218,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
         scope.launch {
             val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
             limitQueryInProgress = false
+            if (accuracy <= 25f) {
+                statusText.text = getString(if (limit == null) R.string.status_auto_none else R.string.status_auto_ok)
+            }
             if (limit == null) {
-                statusText.text = getString(R.string.status_auto_none)
                 return@launch
             }
-            statusText.text =
-                if (accuracy > 25f) getString(R.string.status_weak_gps)
-                else getString(R.string.status_auto_ok)
             currentLimitKmh = limit
             limitText.text = limit.toString()
             updateSpeedColors()
