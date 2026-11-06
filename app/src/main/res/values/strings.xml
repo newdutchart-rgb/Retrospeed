@@ -1,16 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">RetroSpeed</string>
-    <string name="speed_unit">KM/U</string>
-    <string name="auto_label">MAX. TOEGESTANE (AUTO · OSM)</string>
-    <string name="status_searching">GPS aan het zoeken…</string>
-    <string name="status_gps_fix">GPS-verbinding actief</string>
-    <string name="status_gps_off">GPS staat uit — zet locatie aan!</string>
-    <string name="status_no_permission">Geef locatietoegang om de snelheid te meten</string>
-    <string name="status_auto_ok">Limiet automatisch opgehaald (OSM)</string>
-    <string name="status_auto_none">Geen snelheidslimiet gevonden — laatste bekende wordt gebruikt</string>
-    <string name="status_weak_gps">Zwak GPS-signaal — limiet mogelijk onjuist</string>
-    <string name="status_network_approx">Limiet bij benadering (netwerk) — wacht op GPS-fix</string>
-    <string name="status_osm_error">OSM onbereikbaar — probeert opnieuw</string>
-    <string name="tagline">FEEL THE ROAD · 1975 · v1.8</string>
 </resources>
