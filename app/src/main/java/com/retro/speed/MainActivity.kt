@@ -22,7 +22,20 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.math.asin
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 class MainActivity : AppCompatActivity(), LocationListener {
 
@@ -42,8 +55,15 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var speedCounter = 0
     private var wasOverLimit = false
     private var flashOn = false
+    private var autoMode = true
+    private var lastQueryTime = 0L
+    private var lastQueryLat = 0.0
+    private var lastQueryLon = 0.0
+    private var limitQueryInProgress = false
 
+    private val scope = CoroutineScope(Dispatchers.Main)
     private val limitButtons = mutableListOf<Pair<TextView, Int>>()
+    private var autoButton: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,16 +88,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
 
         buildLimitButtons()
-        selectLimit(50)
-
-        if (savedInstanceState != null) {
-            selectLimit(savedInstanceState.getInt("limit", 50))
-        }
+        autoMode = savedInstanceState?.getBoolean("autoMode", true) ?: true
+        selectAuto(savedInstanceState?.getInt("limit", 50) ?: 50, restore = true)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("limit", currentLimitKmh)
+        outState.putBoolean("autoMode", autoMode)
     }
 
     override fun onResume() {
@@ -138,6 +156,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
         val limits = listOf(30, 50, 60, 80, 100, 120)
         limitRow.removeAllViews()
         limitButtons.clear()
+
+        val auto = layoutInflater.inflate(R.layout.item_limit_button, limitRow, false) as TextView
+        auto.text = getString(R.string.auto_button)
+        auto.setOnClickListener { selectAuto() }
+        limitRow.addView(auto)
+        autoButton = auto
+
         limits.forEach { limit ->
             val btn = layoutInflater.inflate(R.layout.item_limit_button, limitRow, false) as TextView
             btn.text = limit.toString()
@@ -148,19 +173,31 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     private fun selectLimit(limit: Int) {
+        autoMode = false
+        applyLimit(limit)
+    }
+
+    private fun selectAuto(initial: Int = 50, restore: Boolean = false) {
+        autoMode = true
+        applyLimit(if (restore) initial else currentLimitKmh)
+    }
+
+    private fun applyLimit(limit: Int) {
         currentLimitKmh = limit
         limitText.text = limit.toString()
-        limitButtons.forEach { (btn, value) ->
-            val selected = value == limit
-            btn.isSelected = selected
-        }
-        updateOverLimitState()
+        limitLabel.text =
+            if (autoMode) getString(R.string.auto_label) else getString(R.string.limit_label)
+        limitButtons.forEach { (btn, value) -> btn.isSelected = !autoMode && value == limit }
+        autoButton?.isSelected = autoMode
+        updateSpeedColors()
     }
 
     override fun onLocationChanged(location: Location) {
         val speedKmh = (location.speed * 3.6).roundToInt()
         currentSpeedKmh = speedKmh
-        statusText.text = getString(R.string.status_gps_fix)
+        if (statusText.text == getString(R.string.status_searching)) {
+            statusText.text = getString(R.string.status_gps_fix)
+        }
 
         ObjectAnimator.ofInt(speedCounter, "text", speedCounter, speedKmh.coerceAtLeast(0))
             .apply {
@@ -173,15 +210,145 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 start()
             }
         speedCounter = speedKmh.coerceAtLeast(0)
-        updateOverLimitState()
+
+        if (autoMode && hasLocationPermission()) {
+            maybeQuerySpeedLimit(location.latitude, location.longitude)
+        }
+        updateSpeedColors()
     }
 
-    private fun updateOverLimitState() {
+    private fun maybeQuerySpeedLimit(lat: Double, lon: Double) {
+        val now = System.currentTimeMillis()
+        val movedFar = distanceMeters(lat, lon, lastQueryLat, lastQueryLon) > 80.0
+        if (limitQueryInProgress) return
+        if (now - lastQueryTime < 10_000L && !movedFar) return
+
+        limitQueryInProgress = true
+        lastQueryTime = now
+        lastQueryLat = lat
+        lastQueryLon = lon
+
+        scope.launch {
+            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon) }
+            limitQueryInProgress = false
+            if (limit == null) {
+                statusText.text = getString(R.string.status_auto_none)
+                return@launch
+            }
+            statusText.text = getString(R.string.status_auto_ok)
+            currentLimitKmh = limit
+            limitText.text = limit.toString()
+            updateSpeedColors()
+        }
+    }
+
+    private fun fetchSpeedLimit(lat: Double, lon: Double): Int? {
+        return try {
+            val query = "[out:json][timeout:10];" +
+                "way(around:40,$lat,$lon)[\"highway\"][\"maxspeed\"];" +
+                "out tags geom;"
+            val url = URL(
+                "https://overpass-api.de/api/interpreter?data=" +
+                    java.net.URLEncoder.encode(query, "UTF-8")
+            )
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            conn.setRequestProperty("User-Agent", "RetroSpeed/1.0")
+
+            val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            conn.disconnect()
+            parseNearestMaxspeed(body, lat, lon)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double): Int? {
+        return try {
+            val elements = JSONObject(json).getJSONArray("elements")
+            var best: Int? = null
+            var bestDist = Double.MAX_VALUE
+            for (i in 0 until elements.length()) {
+                val el = elements.getJSONObject(i)
+                if (el.optString("type") != "way") continue
+                val maxspeedRaw = el.optJSONObject("tags")?.optString("maxspeed") ?: continue
+                val kmh = parseMaxspeed(maxspeedRaw) ?: continue
+                val geom = el.optJSONArray("geometry") ?: continue
+                var minDist = Double.MAX_VALUE
+                for (j in 0 until geom.length() - 1) {
+                    val a = geom.getJSONObject(j)
+                    val b = geom.getJSONObject(j + 1)
+                    val d = pointToSegmentMeters(
+                        lat, lon,
+                        a.getDouble("lat"), a.getDouble("lon"),
+                        b.getDouble("lat"), b.getDouble("lon")
+                    )
+                    if (d < minDist) minDist = d
+                }
+                if (minDist < bestDist) {
+                    bestDist = minDist
+                    best = kmh
+                }
+            }
+            best
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun parseMaxspeed(raw: String): Int? {
+        val clean = raw.trim()
+        if (clean.startsWith("RU:") || clean.contains(";")) return null
+        val mphMatch = Regex("^(\\d+)\\s*mph$").find(clean)
+        if (mphMatch != null) {
+            return (mphMatch.groupValues[1].toInt() * 1.60934).roundToInt()
+        }
+        val kmhMatch = Regex("^(\\d+)$").find(clean)
+        return kmhMatch?.groupValues?.get(1)?.toIntOrNull()
+    }
+
+    private fun pointToSegmentMeters(
+        plat: Double, plon: Double,
+        alat: Double, alon: Double,
+        blat: Double, blon: Double
+    ): Double {
+        fun toXY(lat: Double, lon: Double): Pair<Double, Double> {
+            val x = lon * 111_320.0 * cos(Math.toRadians(lat))
+            val y = lat * 110_540.0
+            return x to y
+        }
+        val (px, py) = toXY(plat, plon)
+        val (ax, ay) = toXY(alat, alon)
+        val (bx, by) = toXY(blat, blon)
+        val dx = bx - ax
+        val dy = by - ay
+        val lenSq = dx * dx + dy * dy
+        val t = if (lenSq == 0.0) 0.0
+        else (((px - ax) * dx + (py - ay) * dy) / lenSq).coerceIn(0.0, 1.0)
+        val cx = ax + t * dx
+        val cy = ay + t * dy
+        val ex = px - cx
+        val ey = py - cy
+        return sqrt(ex * ex + ey * ey)
+    }
+
+    private fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        if (lat1 == 0.0 && lon1 == 0.0) return Double.MAX_VALUE
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2)
+        return 637_1000.0 * 2 * asin(sqrt(a))
+    }
+
+    private fun updateSpeedColors() {
         val over = currentSpeedKmh > currentLimitKmh
         if (over) {
             speedPanel.setBackgroundResource(R.drawable.bg_speed_panel_over)
-            speedText.setTextColor(Color.parseColor("#FFF3C4"))
-            speedUnit.setTextColor(Color.parseColor("#FFF3C4"))
+            speedText.setTextColor(Color.parseColor("#FF6E40"))
+            speedUnit.setTextColor(Color.parseColor("#FFCCBC"))
             limitText.setTextColor(Color.parseColor("#FFD166"))
             limitLabel.setTextColor(Color.parseColor("#FFE0B2"))
             if (!wasOverLimit) {
@@ -193,8 +360,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
         } else {
             speedPanel.setBackgroundResource(R.drawable.bg_speed_panel)
             speedPanel.alpha = 1f
-            speedText.setTextColor(Color.parseColor("#FFB74D"))
-            speedUnit.setTextColor(Color.parseColor("#FFCC80"))
+            val compliant = currentSpeedKmh > 0
+            if (compliant) {
+                speedText.setTextColor(Color.parseColor("#9CCC65"))
+                speedUnit.setTextColor(Color.parseColor("#C5E1A5"))
+            } else {
+                speedText.setTextColor(Color.parseColor("#FFB74D"))
+                speedUnit.setTextColor(Color.parseColor("#FFCC80"))
+            }
             limitText.setTextColor(Color.parseColor("#FFF3C4"))
             limitLabel.setTextColor(Color.parseColor("#FFE0B2"))
             wasOverLimit = false
