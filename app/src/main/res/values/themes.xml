@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RetroSpeed" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_retro_gradient</item>
+        <item name="android:statusBarColor">@color/retroDark</item>
+        <item name="android:navigationBarColor">@color/retroDark</item>
+    </style>
+</resources>

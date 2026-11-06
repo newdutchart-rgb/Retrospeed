@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="retroBrown">#3E2723</color>
+    <color name="retroDark">#1B1210</color>
+    <color name="retroCream">#FFF3C4</color>
+    <color name="retroOrange">#FF8A3D</color>
+    <color name="retroAmber">#FFB74D</color>
+    <color name="retroGold">#FFD166</color>
+    <color name="retroOlive">#8D6E3A</color>
+    <color name="retroRed">#E64A19</color>
+    <color name="retroTeal">#26A69A</color>
+</resources>
