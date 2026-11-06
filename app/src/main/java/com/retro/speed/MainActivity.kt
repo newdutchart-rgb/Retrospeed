@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var speedUnit: TextView
     private lateinit var limitText: TextView
     private lateinit var statusText: TextView
+    private lateinit var cameraText: TextView
     private lateinit var speedPanel: View
 
     private var currentLimitKmh = 50
@@ -56,6 +57,15 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var lastQueryLon = 0.0
     private var limitQueryInProgress = false
 
+    private var lastCameraQueryTime = 0L
+    private var lastCameraQueryLat = 0.0
+    private var lastCameraQueryLon = 0.0
+    private var cameraQueryInProgress = false
+    private var nearestCameraLat = 0.0
+    private var nearestCameraLon = 0.0
+    private var hasNearestCamera = false
+    private var cameraBuzzed = false
+
     private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +77,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         speedUnit = findViewById(R.id.speedUnit)
         limitText = findViewById(R.id.limitText)
         statusText = findViewById(R.id.statusText)
+        cameraText = findViewById(R.id.cameraText)
         speedPanel = findViewById(R.id.speedPanel)
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -164,7 +175,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
         if (hasLocationPermission()) {
             maybeQuerySpeedLimit(location.latitude, location.longitude, location.accuracy, location.bearing)
+            maybeQuerySpeedCameras(location.latitude, location.longitude)
         }
+        updateCameraWarning(location)
         updateSpeedColors()
     }
 
@@ -192,6 +205,110 @@ class MainActivity : AppCompatActivity(), LocationListener {
             currentLimitKmh = limit
             limitText.text = limit.toString()
             updateSpeedColors()
+        }
+    }
+
+    private fun maybeQuerySpeedCameras(lat: Double, lon: Double) {
+        val now = System.currentTimeMillis()
+        if (cameraQueryInProgress) return
+        val moved = distanceMeters(lat, lon, lastCameraQueryLat, lastCameraQueryLon) > 300.0
+        if (now - lastCameraQueryTime < 30_000L && !moved) return
+
+        cameraQueryInProgress = true
+        lastCameraQueryTime = now
+        lastCameraQueryLat = lat
+        lastCameraQueryLon = lon
+
+        scope.launch {
+            val cameras = withContext(Dispatchers.IO) { fetchSpeedCameras(lat, lon) }
+            cameraQueryInProgress = false
+            var bestDist = Double.MAX_VALUE
+            var bestLat = 0.0
+            var bestLon = 0.0
+            var found = false
+            cameras.forEach { (cLat, cLon) ->
+                val d = distanceMeters(lat, lon, cLat, cLon)
+                if (d < bestDist) {
+                    bestDist = d
+                    bestLat = cLat
+                    bestLon = cLon
+                    found = true
+                }
+            }
+            nearestCameraLat = bestLat
+            nearestCameraLon = bestLon
+            hasNearestCamera = found
+        }
+    }
+
+    private fun fetchSpeedCameras(lat: Double, lon: Double): List<Pair<Double, Double>> {
+        return try {
+            val query = "[out:json][timeout:10];" +
+                "node(around:2500,$lat,$lon)[\"highway\"=\"speed_camera\"];" +
+                "out body;"
+            val url = URL(
+                "https://overpass-api.de/api/interpreter?data=" +
+                    java.net.URLEncoder.encode(query, "UTF-8")
+            )
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            conn.setRequestProperty("User-Agent", "RetroSpeed/1.0")
+
+            val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            conn.disconnect()
+            val result = mutableListOf<Pair<Double, Double>>()
+            val elements = JSONObject(body).getJSONArray("elements")
+            for (i in 0 until elements.length()) {
+                val el = elements.getJSONObject(i)
+                if (el.optString("type") != "node") continue
+                result.add(Pair(el.getDouble("lat"), el.getDouble("lon")))
+            }
+            result
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun updateCameraWarning(location: Location) {
+        if (!hasNearestCamera) {
+            cameraText.visibility = View.GONE
+            cameraBuzzed = false
+            return
+        }
+        val dist = distanceMeters(
+            location.latitude, location.longitude, nearestCameraLat, nearestCameraLon
+        )
+        if (dist > 1500.0) {
+            cameraText.visibility = View.GONE
+            cameraBuzzed = false
+            return
+        }
+
+        val ahead = if (location.hasBearing() && location.bearing != 0.0f) {
+            val toCamera = segmentBearing(
+                location.latitude, location.longitude, nearestCameraLat, nearestCameraLon
+            )
+            !toCamera.isFinite() || bearingDiffDeg(location.bearing, toCamera) < 70.0
+        } else true
+
+        if (!ahead) {
+            cameraText.visibility = View.GONE
+            cameraBuzzed = false
+            return
+        }
+
+        cameraText.visibility = View.VISIBLE
+        if (dist <= 400.0) {
+            cameraText.text = "FLITSER \u26A0 ${dist.roundToInt()} M"
+            cameraText.setTextColor(Color.parseColor("#FF6E40"))
+            if (!cameraBuzzed) {
+                cameraBuzzed = true
+                buzz()
+            }
+        } else {
+            cameraText.text = "FLITSER \u26A0 ~${dist.roundToInt()} M"
+            cameraText.setTextColor(Color.parseColor("#FFD166"))
         }
     }
 
