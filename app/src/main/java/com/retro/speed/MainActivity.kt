@@ -216,16 +216,22 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastQueryLon = lon
 
         scope.launch {
-            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
+            val result = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
             limitQueryInProgress = false
-            if (accuracy <= 25f) {
-                statusText.text = getString(if (limit == null) R.string.status_auto_none else R.string.status_auto_ok)
-            }
-            if (limit == null) {
+            if (result.networkError) {
+                statusText.text = getString(R.string.status_osm_error)
                 return@launch
             }
-            currentLimitKmh = limit
-            limitText.text = limit.toString()
+            if (accuracy <= 25f) {
+                statusText.text = getString(
+                    if (result.limit == null) R.string.status_auto_none else R.string.status_auto_ok
+                )
+            }
+            if (result.limit == null) {
+                return@launch
+            }
+            currentLimitKmh = result.limit
+            limitText.text = result.limit.toString()
             updateSpeedColors()
         }
     }
@@ -334,27 +340,51 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun fetchSpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float): Int? {
-        val radius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
-        return try {
-            val query = "[out:json][timeout:10];" +
-                "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
-                "out body geom;"
-            val url = URL(
-                "https://overpass-api.de/api/interpreter?data=" +
-                    java.net.URLEncoder.encode(query, "UTF-8")
-            )
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
-            conn.setRequestProperty("User-Agent", "RetroSpeed/1.0")
+    private data class LimitResult(val limit: Int?, val networkError: Boolean)
 
-            val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
-            conn.disconnect()
-            parseNearestMaxspeed(body, lat, lon, bearing)
-        } catch (e: Exception) {
-            null
+    private val overpassEndpoints = listOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.osm.ch/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter"
+    )
+
+    private fun fetchSpeedLimit(
+        lat: Double,
+        lon: Double,
+        accuracy: Float,
+        bearing: Float
+    ): LimitResult {
+        val radius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
+        val query = "[out:json][timeout:10];" +
+            "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
+            "out body geom;"
+
+        for (endpoint in overpassEndpoints) {
+            try {
+                val conn = URL(endpoint).openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.connectTimeout = 8_000
+                conn.readTimeout = 8_000
+                conn.setRequestProperty("User-Agent", "RetroSpeed/1.0")
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                conn.outputStream.use {
+                    it.write(
+                        ("data=" + java.net.URLEncoder.encode(query, "UTF-8")).toByteArray()
+                    )
+                }
+                if (conn.responseCode != 200) {
+                    conn.disconnect()
+                    continue
+                }
+                val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
+                conn.disconnect()
+                return LimitResult(parseNearestMaxspeed(body, lat, lon, bearing), false)
+            } catch (e: Exception) {
+            }
         }
+        return LimitResult(null, true)
     }
 
     private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double, bearing: Float): Int? {
