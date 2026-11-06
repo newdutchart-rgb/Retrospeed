@@ -9,4 +9,8 @@
     <string name="status_gps_off">GPS staat uit — zet locatie aan!</string>
     <string name="status_no_permission">Geef locatietoegang om de snelheid te meten</string>
     <string name="tagline">FEEL THE ROAD · 1975</string>
+    <string name="auto_label">MAX. TOEGESTANE (AUTO)</string>
+    <string name="auto_button">AUTO</string>
+    <string name="status_auto_ok">Limiet automatisch opgehaald (OSM)</string>
+    <string name="status_auto_none">Geen snelheidslimiet gevonden — handmatig kiezen</string>
 </resources>
