@@ -11,5 +11,6 @@
     <string name="status_auto_none">Geen snelheidslimiet gevonden — laatste bekende wordt gebruikt</string>
     <string name="status_weak_gps">Zwak GPS-signaal — limiet mogelijk onjuist</string>
     <string name="status_network_approx">Limiet bij benadering (netwerk) — wacht op GPS-fix</string>
-    <string name="tagline">FEEL THE ROAD · 1975 · v1.7</string>
+    <string name="status_osm_error">OSM onbereikbaar — probeert opnieuw</string>
+    <string name="tagline">FEEL THE ROAD · 1975 · v1.8</string>
 </resources>
