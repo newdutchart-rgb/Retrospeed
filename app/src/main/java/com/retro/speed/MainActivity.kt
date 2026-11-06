@@ -144,7 +144,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
     override fun onLocationChanged(location: Location) {
         val speedKmh = (location.speed * 3.6).roundToInt()
         currentSpeedKmh = speedKmh
-        if (statusText.text == getString(R.string.status_searching)) {
+        if (location.accuracy > 25f) {
+            statusText.text = getString(R.string.status_weak_gps)
+        } else if (statusText.text == getString(R.string.status_searching)) {
             statusText.text = getString(R.string.status_gps_fix)
         }
 
@@ -184,7 +186,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 statusText.text = getString(R.string.status_auto_none)
                 return@launch
             }
-            statusText.text = getString(R.string.status_auto_ok)
+            statusText.text =
+                if (accuracy > 25f) getString(R.string.status_weak_gps)
+                else getString(R.string.status_auto_ok)
             currentLimitKmh = limit
             limitText.text = limit.toString()
             updateSpeedColors()
