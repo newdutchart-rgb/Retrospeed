@@ -268,8 +268,8 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     private fun bearingDiffDeg(a: Float, b: Float): Double {
-        val d = kotlin.math.abs(a - b) % 360.0f
-        return if (d > 180.0f) 360.0f - d else d
+        val d = kotlin.math.abs((a - b).toDouble()) % 360.0
+        return if (d > 180.0) 360.0 - d else d
     }
 
     private fun parseMaxspeed(raw: String): Int? {
