@@ -161,16 +161,16 @@ class MainActivity : AppCompatActivity(), LocationListener {
         speedCounter = speedKmh.coerceAtLeast(0)
 
         if (hasLocationPermission()) {
-            maybeQuerySpeedLimit(location.latitude, location.longitude)
+            maybeQuerySpeedLimit(location.latitude, location.longitude, location.accuracy, location.bearing)
         }
         updateSpeedColors()
     }
 
-    private fun maybeQuerySpeedLimit(lat: Double, lon: Double) {
+    private fun maybeQuerySpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float) {
         val now = System.currentTimeMillis()
-        val movedFar = distanceMeters(lat, lon, lastQueryLat, lastQueryLon) > 80.0
+        val movedFar = distanceMeters(lat, lon, lastQueryLat, lastQueryLon) > 40.0
         if (limitQueryInProgress) return
-        if (now - lastQueryTime < 10_000L && !movedFar) return
+        if (now - lastQueryTime < 8_000L && !movedFar) return
 
         limitQueryInProgress = true
         lastQueryTime = now
@@ -178,7 +178,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastQueryLon = lon
 
         scope.launch {
-            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon) }
+            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
             limitQueryInProgress = false
             if (limit == null) {
                 statusText.text = getString(R.string.status_auto_none)
@@ -191,11 +191,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun fetchSpeedLimit(lat: Double, lon: Double): Int? {
+    private fun fetchSpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float): Int? {
+        val radius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
         return try {
             val query = "[out:json][timeout:10];" +
-                "way(around:40,$lat,$lon)[\"highway\"][\"maxspeed\"];" +
-                "out tags geom;"
+                "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
+                "out body geom;"
             val url = URL(
                 "https://overpass-api.de/api/interpreter?data=" +
                     java.net.URLEncoder.encode(query, "UTF-8")
@@ -207,17 +208,18 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
             val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
             conn.disconnect()
-            parseNearestMaxspeed(body, lat, lon)
+            parseNearestMaxspeed(body, lat, lon, bearing)
         } catch (e: Exception) {
             null
         }
     }
 
-    private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double): Int? {
+    private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double, bearing: Float): Int? {
         return try {
             val elements = JSONObject(json).getJSONArray("elements")
             var best: Int? = null
-            var bestDist = Double.MAX_VALUE
+            var bestScore = Double.MAX_VALUE
+            val hasBearing = bearing.isFinite() && bearing != 0.0f
             for (i in 0 until elements.length()) {
                 val el = elements.getJSONObject(i)
                 if (el.optString("type") != "way") continue
@@ -225,6 +227,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 val kmh = parseMaxspeed(maxspeedRaw) ?: continue
                 val geom = el.optJSONArray("geometry") ?: continue
                 var minDist = Double.MAX_VALUE
+                var bestSegBearing = Float.NaN
                 for (j in 0 until geom.length() - 1) {
                     val a = geom.getJSONObject(j)
                     val b = geom.getJSONObject(j + 1)
@@ -233,10 +236,21 @@ class MainActivity : AppCompatActivity(), LocationListener {
                         a.getDouble("lat"), a.getDouble("lon"),
                         b.getDouble("lat"), b.getDouble("lon")
                     )
-                    if (d < minDist) minDist = d
+                    if (d < minDist) {
+                        minDist = d
+                        bestSegBearing = segmentBearing(
+                            a.getDouble("lat"), a.getDouble("lon"),
+                            b.getDouble("lat"), b.getDouble("lon")
+                        )
+                    }
                 }
-                if (minDist < bestDist) {
-                    bestDist = minDist
+                var score = minDist
+                if (hasBearing && bestSegBearing.isFinite()) {
+                    val diff = bearingDiffDeg(bearing, bestSegBearing)
+                    if (diff > 60.0) score *= 3.0
+                }
+                if (score < bestScore) {
+                    bestScore = score
                     best = kmh
                 }
             }
@@ -244,6 +258,18 @@ class MainActivity : AppCompatActivity(), LocationListener {
         } catch (e: Exception) {
             null
         }
+    }
+
+    private fun segmentBearing(alat: Double, alon: Double, blat: Double, blon: Double): Float {
+        val dy = (blat - alat) * 110_540.0
+        val dx = (blon - alon) * 111_320.0 * cos(Math.toRadians((alat + blat) / 2.0))
+        if (dx == 0.0 && dy == 0.0) return Float.NaN
+        return ((Math.toDegrees(kotlin.math.atan2(dx, dy)) + 360.0) % 360.0).toFloat()
+    }
+
+    private fun bearingDiffDeg(a: Float, b: Float): Double {
+        val d = kotlin.math.abs(a - b) % 360.0f
+        return if (d > 180.0f) 360.0f - d else d
     }
 
     private fun parseMaxspeed(raw: String): Int? {
