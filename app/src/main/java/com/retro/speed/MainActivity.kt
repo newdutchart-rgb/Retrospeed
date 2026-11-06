@@ -41,9 +41,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var vibrator: Vibrator? = null
 
     private lateinit var speedText: TextView
-    private lateinit var speedUnit: TextView
     private lateinit var limitText: TextView
-    private lateinit var statusText: TextView
     private lateinit var cameraText: TextView
     private lateinit var speedPanel: View
 
@@ -52,8 +50,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var speedCounter = 0
     private var wasOverLimit = false
     private var flashOn = false
-    private var lastQueryTime = 0L
     private var lastGpsFixTime = 0L
+
+    private var lastQueryTime = 0L
     private var lastQueryLat = 0.0
     private var lastQueryLon = 0.0
     private var limitQueryInProgress = false
@@ -75,9 +74,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         speedText = findViewById(R.id.speedText)
-        speedUnit = findViewById(R.id.speedUnit)
         limitText = findViewById(R.id.limitText)
-        statusText = findViewById(R.id.statusText)
         cameraText = findViewById(R.id.cameraText)
         speedPanel = findViewById(R.id.speedPanel)
 
@@ -120,10 +117,8 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 ),
                 REQ_PERMISSION
             )
-            statusText.text = getString(R.string.status_no_permission)
             return
         }
-        statusText.text = getString(R.string.status_searching)
         locationManager.requestLocationUpdates(
             LocationManager.GPS_PROVIDER,
             1000L,
@@ -155,12 +150,11 @@ class MainActivity : AppCompatActivity(), LocationListener {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_PERMISSION) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startLocationUpdates()
-            } else {
-                statusText.text = getString(R.string.status_no_permission)
-            }
+        if (requestCode == REQ_PERMISSION &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            startLocationUpdates()
         }
     }
 
@@ -169,7 +163,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
             val gpsStale = lastGpsFixTime == 0L ||
                 System.currentTimeMillis() - lastGpsFixTime > 30_000L
             if (gpsStale && hasLocationPermission()) {
-                statusText.text = getString(R.string.status_network_approx)
                 maybeQuerySpeedLimit(location.latitude, location.longitude, location.accuracy, location.bearing)
             }
             return
@@ -178,11 +171,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastGpsFixTime = System.currentTimeMillis()
         val speedKmh = (location.speed * 3.6).roundToInt()
         currentSpeedKmh = speedKmh
-        if (location.accuracy > 25f) {
-            statusText.text = getString(R.string.status_weak_gps)
-        } else if (statusText.text == getString(R.string.status_searching)) {
-            statusText.text = getString(R.string.status_gps_fix)
-        }
 
         ObjectAnimator.ofInt(speedCounter, "text", speedCounter, speedKmh.coerceAtLeast(0))
             .apply {
@@ -216,22 +204,11 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastQueryLon = lon
 
         scope.launch {
-            val result = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
+            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
             limitQueryInProgress = false
-            if (result.networkError) {
-                statusText.text = getString(R.string.status_osm_error)
-                return@launch
-            }
-            if (accuracy <= 25f) {
-                statusText.text = getString(
-                    if (result.limit == null) R.string.status_auto_none else R.string.status_auto_ok
-                )
-            }
-            if (result.limit == null) {
-                return@launch
-            }
-            currentLimitKmh = result.limit
-            limitText.text = result.limit.toString()
+            if (limit == null) return@launch
+            currentLimitKmh = limit
+            limitText.text = limit.toString()
             updateSpeedColors()
         }
     }
@@ -269,97 +246,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun fetchSpeedCameras(lat: Double, lon: Double): List<Pair<Double, Double>> {
-        return try {
-            val query = "[out:json][timeout:10];" +
-                "node(around:2500,$lat,$lon)[\"highway\"=\"speed_camera\"];" +
-                "out body;"
-            val url = URL(
-                "https://overpass-api.de/api/interpreter?data=" +
-                    java.net.URLEncoder.encode(query, "UTF-8")
-            )
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
-            conn.setRequestProperty("User-Agent", "RetroSpeed/1.0")
-
-            val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
-            conn.disconnect()
-            val result = mutableListOf<Pair<Double, Double>>()
-            val elements = JSONObject(body).getJSONArray("elements")
-            for (i in 0 until elements.length()) {
-                val el = elements.getJSONObject(i)
-                if (el.optString("type") != "node") continue
-                result.add(Pair(el.getDouble("lat"), el.getDouble("lon")))
-            }
-            result
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun updateCameraWarning(location: Location) {
-        if (!hasNearestCamera) {
-            cameraText.visibility = View.GONE
-            cameraBuzzed = false
-            return
-        }
-        val dist = distanceMeters(
-            location.latitude, location.longitude, nearestCameraLat, nearestCameraLon
-        )
-        if (dist > 1500.0) {
-            cameraText.visibility = View.GONE
-            cameraBuzzed = false
-            return
-        }
-
-        val ahead = if (location.hasBearing() && location.bearing != 0.0f) {
-            val toCamera = segmentBearing(
-                location.latitude, location.longitude, nearestCameraLat, nearestCameraLon
-            )
-            !toCamera.isFinite() || bearingDiffDeg(location.bearing, toCamera) < 70.0
-        } else true
-
-        if (!ahead) {
-            cameraText.visibility = View.GONE
-            cameraBuzzed = false
-            return
-        }
-
-        cameraText.visibility = View.VISIBLE
-        if (dist <= 400.0) {
-            cameraText.text = "FLITSER \u26A0 ${dist.roundToInt()} M"
-            cameraText.setTextColor(Color.parseColor("#FF6E40"))
-            if (!cameraBuzzed) {
-                cameraBuzzed = true
-                buzz()
-            }
-        } else {
-            cameraText.text = "FLITSER \u26A0 ~${dist.roundToInt()} M"
-            cameraText.setTextColor(Color.parseColor("#FFD166"))
-        }
-    }
-
-    private data class LimitResult(val limit: Int?, val networkError: Boolean)
-
-    private val overpassEndpoints = listOf(
-        "https://overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter",
-        "https://overpass.osm.ch/api/interpreter",
-        "https://overpass.private.coffee/api/interpreter"
-    )
-
-    private fun fetchSpeedLimit(
-        lat: Double,
-        lon: Double,
-        accuracy: Float,
-        bearing: Float
-    ): LimitResult {
-        val radius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
-        val query = "[out:json][timeout:10];" +
-            "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
-            "out body geom;"
-
+    private fun overpassQuery(query: String): String? {
         for (endpoint in overpassEndpoints) {
             try {
                 val conn = URL(endpoint).openConnection() as HttpURLConnection
@@ -380,11 +267,51 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 }
                 val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
                 conn.disconnect()
-                return LimitResult(parseNearestMaxspeed(body, lat, lon, bearing), false)
+                return body
             } catch (e: Exception) {
             }
         }
-        return LimitResult(null, true)
+        return null
+    }
+
+    private val overpassEndpoints = listOf(
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.osm.ch/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter"
+    )
+
+    private fun fetchSpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float): Int? {
+        val baseRadius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
+        val radii = listOf(baseRadius, (baseRadius * 3).coerceAtMost(300))
+        for (radius in radii) {
+            val query = "[out:json][timeout:10];" +
+                "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
+                "out body geom;"
+            val body = overpassQuery(query) ?: continue
+            val limit = parseNearestMaxspeed(body, lat, lon, bearing)
+            if (limit != null) return limit
+        }
+        return null
+    }
+
+    private fun fetchSpeedCameras(lat: Double, lon: Double): List<Pair<Double, Double>> {
+        val query = "[out:json][timeout:10];" +
+            "node(around:2500,$lat,$lon)[\"highway\"=\"speed_camera\"];" +
+            "out body;"
+        val body = overpassQuery(query) ?: return emptyList()
+        return try {
+            val result = mutableListOf<Pair<Double, Double>>()
+            val elements = JSONObject(body).getJSONArray("elements")
+            for (i in 0 until elements.length()) {
+                val el = elements.getJSONObject(i)
+                if (el.optString("type") != "node") continue
+                result.add(Pair(el.getDouble("lat"), el.getDouble("lon")))
+            }
+            result
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double, bearing: Float): Int? {
@@ -433,6 +360,17 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
+    private fun parseMaxspeed(raw: String): Int? {
+        val clean = raw.trim()
+        if (clean.startsWith("RU:") || clean.contains(";")) return null
+        val mphMatch = Regex("^(\\d+)\\s*mph$").find(clean)
+        if (mphMatch != null) {
+            return (mphMatch.groupValues[1].toInt() * 1.60934).roundToInt()
+        }
+        val kmhMatch = Regex("^(\\d+)$").find(clean)
+        return kmhMatch?.groupValues?.get(1)?.toIntOrNull()
+    }
+
     private fun segmentBearing(alat: Double, alon: Double, blat: Double, blon: Double): Float {
         val dy = (blat - alat) * 110_540.0
         val dx = (blon - alon) * 111_320.0 * cos(Math.toRadians((alat + blat) / 2.0))
@@ -443,17 +381,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private fun bearingDiffDeg(a: Float, b: Float): Double {
         val d = kotlin.math.abs((a - b).toDouble()) % 360.0
         return if (d > 180.0) 360.0 - d else d
-    }
-
-    private fun parseMaxspeed(raw: String): Int? {
-        val clean = raw.trim()
-        if (clean.startsWith("RU:") || clean.contains(";")) return null
-        val mphMatch = Regex("^(\\d+)\\s*mph$").find(clean)
-        if (mphMatch != null) {
-            return (mphMatch.groupValues[1].toInt() * 1.60934).roundToInt()
-        }
-        val kmhMatch = Regex("^(\\d+)$").find(clean)
-        return kmhMatch?.groupValues?.get(1)?.toIntOrNull()
     }
 
     private fun pointToSegmentMeters(
@@ -491,13 +418,51 @@ class MainActivity : AppCompatActivity(), LocationListener {
         return 637_1000.0 * 2 * asin(sqrt(a))
     }
 
+    private fun updateCameraWarning(location: Location) {
+        if (!hasNearestCamera) {
+            cameraText.visibility = View.GONE
+            cameraBuzzed = false
+            return
+        }
+        val dist = distanceMeters(
+            location.latitude, location.longitude, nearestCameraLat, nearestCameraLon
+        )
+        if (dist > 1500.0) {
+            cameraText.visibility = View.GONE
+            cameraBuzzed = false
+            return
+        }
+
+        val ahead = if (location.hasBearing() && location.bearing != 0.0f) {
+            val toCamera = segmentBearing(
+                location.latitude, location.longitude, nearestCameraLat, nearestCameraLon
+            )
+            !toCamera.isFinite() || bearingDiffDeg(location.bearing, toCamera) < 70.0
+        } else true
+
+        if (!ahead) {
+            cameraText.visibility = View.GONE
+            cameraBuzzed = false
+            return
+        }
+
+        cameraText.visibility = View.VISIBLE
+        if (dist <= 400.0) {
+            cameraText.setTextColor(Color.parseColor("#FF6E40"))
+            if (!cameraBuzzed) {
+                cameraBuzzed = true
+                buzz()
+            }
+        } else {
+            cameraText.setTextColor(Color.parseColor("#FFD166"))
+        }
+    }
+
     private fun updateSpeedColors() {
         val over = currentSpeedKmh > currentLimitKmh
         if (over) {
             speedPanel.setBackgroundResource(R.drawable.bg_speed_panel_over)
             speedText.setTextColor(Color.parseColor("#FF6E40"))
-            speedUnit.setTextColor(Color.parseColor("#FFCCBC"))
-            limitText.setTextColor(Color.parseColor("#FFD166"))
             if (!wasOverLimit) {
                 wasOverLimit = true
                 buzz()
@@ -507,16 +472,17 @@ class MainActivity : AppCompatActivity(), LocationListener {
         } else {
             speedPanel.setBackgroundResource(R.drawable.bg_speed_panel)
             speedPanel.alpha = 1f
-            val moving = currentSpeedKmh > 0
-            if (moving) {
+            if (currentSpeedKmh > 0) {
                 speedText.setTextColor(Color.parseColor("#9CCC65"))
-                speedUnit.setTextColor(Color.parseColor("#C5E1A5"))
             } else {
                 speedText.setTextColor(Color.parseColor("#FFB74D"))
-                speedUnit.setTextColor(Color.parseColor("#FFCC80"))
             }
-            limitText.setTextColor(Color.parseColor("#FFF3C4"))
             wasOverLimit = false
+        }
+        if (currentSpeedKmh > currentLimitKmh) {
+            limitText.setTextColor(Color.parseColor("#FFD166"))
+        } else {
+            limitText.setTextColor(Color.parseColor("#FFF3C4"))
         }
     }
 
@@ -534,9 +500,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     @Deprecated("Deprecated in Java")
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
     override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {
-        statusText.text = getString(R.string.status_gps_off)
-    }
+    override fun onProviderDisabled(provider: String) {}
 
     companion object {
         private const val REQ_PERMISSION = 42
