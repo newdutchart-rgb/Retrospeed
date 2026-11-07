@@ -26,6 +26,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -63,6 +67,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private lateinit var debugText: TextView
     private lateinit var rootView: View
+    private lateinit var mapView: MapView
+    private var lastCenterLat = 0.0
+    private var lastCenterLon = 0.0
 
     private var lastQueryTime = 0L
     private var lastQueryLat = 0.0
@@ -92,7 +99,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
         debugText = findViewById(R.id.debugText)
         speedPanel = findViewById(R.id.speedPanel)
         rootView = findViewById(R.id.rootView)
+        mapView = findViewById(R.id.mapView)
         rootView.setOnClickListener { showDebug = !showDebug; updateDebug() }
+
+        Configuration.getInstance().userAgentValue = "RetroSpeed/1.0"
+        mapView.setTileSource(TileSourceFactory.MAPNIK)
+        mapView.setMultiTouchControls(true)
+        mapView.controller.setZoom(17.5)
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -114,12 +127,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     override fun onResume() {
         super.onResume()
+        mapView.onResume()
         startLocationUpdates()
     }
 
     override fun onPause() {
         super.onPause()
         locationManager.removeUpdates(this)
+        mapView.onPause()
     }
 
     @SuppressLint("MissingPermission")
@@ -203,6 +218,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastFixLon = location.longitude
         lastFixTime = location.time
         currentSpeedKmh = speedKmh
+
+        val movedCenter = distanceMeters(location.latitude, location.longitude, lastCenterLat, lastCenterLon)
+        if (lastCenterLat == 0.0 || movedCenter > 50.0) {
+            lastCenterLat = location.latitude
+            lastCenterLon = location.longitude
+            mapView.controller.animateTo(GeoPoint(location.latitude, location.longitude))
+        }
 
         ObjectAnimator.ofInt(speedCounter, "text", speedCounter, speedKmh.coerceAtLeast(0))
             .apply {

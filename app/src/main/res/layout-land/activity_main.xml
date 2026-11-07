@@ -1,88 +1,99 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/rootView"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="horizontal"
-    android:padding="24dp">
+    android:layout_height="match_parent">
 
-    <TextView
-        android:id="@+id/debugText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="8dp"
-        android:layout_gravity="center_vertical"
-        android:alpha="0.5"
-        android:textColor="@color/retroTeal"
-        android:textSize="12sp"
-        android:visibility="gone" />
+    <org.osmdroid.views.MapView
+        android:id="@+id/mapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
     <LinearLayout
-        android:id="@+id/speedPanel"
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_weight="1"
-        android:layout_marginEnd="24dp"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="16dp"
-        android:background="@drawable/bg_speed_panel"
-        android:elevation="8dp">
+        android:orientation="horizontal"
+        android:padding="24dp">
 
         <TextView
-            android:id="@+id/speedText"
+            android:id="@+id/debugText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="0"
-            android:textColor="@color/retroAmber"
-            android:textSize="96sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace"
-            android:shadowColor="#000000"
-            android:shadowDx="4"
-            android:shadowDy="4"
-            android:shadowRadius="8" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center">
-
-        <TextView
-            android:id="@+id/streetText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:maxWidth="220dp"
-            android:maxLines="1"
-            android:ellipsize="end"
+            android:layout_marginEnd="8dp"
+            android:layout_gravity="center_vertical"
             android:alpha="0.5"
-            android:textColor="@color/retroCream"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/cameraText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="📷"
-            android:textSize="28sp"
+            android:textColor="@color/retroTeal"
+            android:textSize="12sp"
             android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/limitText"
-            android:layout_width="96dp"
-            android:layout_height="96dp"
+        <LinearLayout
+            android:id="@+id/speedPanel"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="24dp"
+            android:orientation="vertical"
             android:gravity="center"
-            android:background="@drawable/bg_limit_circle"
-            android:text="50"
-            android:textColor="@color/retroCream"
-            android:textSize="36sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
+            android:padding="16dp"
+            android:background="@drawable/bg_speed_panel"
+            android:elevation="8dp">
+
+            <TextView
+                android:id="@+id/speedText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/retroAmber"
+                android:textSize="96sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:shadowColor="#000000"
+                android:shadowDx="4"
+                android:shadowDy="4"
+                android:shadowRadius="8" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <TextView
+                android:id="@+id/streetText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:maxWidth="220dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:alpha="0.5"
+                android:textColor="@color/retroCream"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/cameraText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:text="📷"
+                android:textSize="28sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/limitText"
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:gravity="center"
+                android:background="@drawable/bg_limit_circle"
+                android:text="50"
+                android:textColor="@color/retroCream"
+                android:textSize="36sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+
     </LinearLayout>
 
-</LinearLayout>
+</FrameLayout>
