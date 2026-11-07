@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var vibrator: Vibrator? = null
 
     private lateinit var speedText: TextView
+    private lateinit var streetText: TextView
     private lateinit var limitText: TextView
     private lateinit var cameraText: TextView
     private lateinit var speedPanel: View
@@ -51,6 +52,17 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var wasOverLimit = false
     private var flashOn = false
     private var lastGpsFixTime = 0L
+    private var lastFixLat = 0.0
+    private var lastFixLon = 0.0
+    private var lastFixTime = 0L
+    private var lastRawSpeed = 0f
+    private var lastAccuracy = 0f
+    private var lastLimitStatus = "-"
+    @Volatile private var lastNetError = false
+    private var showDebug = false
+
+    private lateinit var debugText: TextView
+    private lateinit var rootView: View
 
     private var lastQueryTime = 0L
     private var lastQueryLat = 0.0
@@ -74,9 +86,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         speedText = findViewById(R.id.speedText)
+        streetText = findViewById(R.id.streetText)
         limitText = findViewById(R.id.limitText)
         cameraText = findViewById(R.id.cameraText)
+        debugText = findViewById(R.id.debugText)
         speedPanel = findViewById(R.id.speedPanel)
+        rootView = findViewById(R.id.rootView)
+        rootView.setOnClickListener { showDebug = !showDebug; updateDebug() }
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -169,7 +185,23 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
 
         lastGpsFixTime = System.currentTimeMillis()
-        val speedKmh = (location.speed * 3.6).roundToInt()
+        val rawSpeed = location.speed
+        lastRawSpeed = rawSpeed
+        lastAccuracy = location.accuracy
+
+        var speedKmh: Int
+        if (rawSpeed > 0.5f) {
+            speedKmh = (rawSpeed * 3.6).roundToInt()
+        } else if (lastFixTime != 0L && location.time > lastFixTime) {
+            val dt = (location.time - lastFixTime) / 1000.0
+            val d = distanceMeters(location.latitude, location.longitude, lastFixLat, lastFixLon)
+            speedKmh = if (dt > 0.5 && d < 500.0) ((d / dt) * 3.6).roundToInt() else currentSpeedKmh
+        } else {
+            speedKmh = 0
+        }
+        lastFixLat = location.latitude
+        lastFixLon = location.longitude
+        lastFixTime = location.time
         currentSpeedKmh = speedKmh
 
         ObjectAnimator.ofInt(speedCounter, "text", speedCounter, speedKmh.coerceAtLeast(0))
@@ -190,6 +222,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
         updateCameraWarning(location)
         updateSpeedColors()
+        updateDebug()
     }
 
     private fun maybeQuerySpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float) {
@@ -204,11 +237,18 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastQueryLon = lon
 
         scope.launch {
-            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
+            val result = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
             limitQueryInProgress = false
-            if (limit == null) return@launch
-            currentLimitKmh = limit
-            limitText.text = limit.toString()
+            lastLimitStatus = when {
+                result.limit != null -> "OK ${result.limit}"
+                lastNetError -> "NETWERKFOUT"
+                else -> "GEEN IN OSM"
+            }
+            updateDebug()
+            if (result.limit == null) return@launch
+            currentLimitKmh = result.limit
+            limitText.text = result.limit.toString()
+            result.street?.let { streetText.text = it }
             updateSpeedColors()
         }
     }
@@ -281,18 +321,30 @@ class MainActivity : AppCompatActivity(), LocationListener {
         "https://overpass.private.coffee/api/interpreter"
     )
 
-    private fun fetchSpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float): Int? {
+    private data class WayInfo(val limit: Int?, val street: String?)
+
+    private fun fetchSpeedLimit(
+        lat: Double,
+        lon: Double,
+        accuracy: Float,
+        bearing: Float
+    ): WayInfo {
         val baseRadius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
         val radii = listOf(baseRadius, (baseRadius * 3).coerceAtMost(300))
         for (radius in radii) {
             val query = "[out:json][timeout:10];" +
                 "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
                 "out body geom;"
-            val body = overpassQuery(query) ?: continue
-            val limit = parseNearestMaxspeed(body, lat, lon, bearing)
-            if (limit != null) return limit
+            val body = overpassQuery(query)
+            if (body == null) {
+                lastNetError = true
+                continue
+            }
+            lastNetError = false
+            val info = parseNearestWay(body, lat, lon, bearing)
+            if (info.limit != null) return info
         }
-        return null
+        return WayInfo(null, null)
     }
 
     private fun fetchSpeedCameras(lat: Double, lon: Double): List<Pair<Double, Double>> {
@@ -314,17 +366,20 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double, bearing: Float): Int? {
+    private fun parseNearestWay(json: String, lat: Double, lon: Double, bearing: Float): WayInfo {
         return try {
             val elements = JSONObject(json).getJSONArray("elements")
             var best: Int? = null
+            var bestStreet: String? = null
             var bestScore = Double.MAX_VALUE
             val hasBearing = bearing.isFinite() && bearing != 0.0f
             for (i in 0 until elements.length()) {
                 val el = elements.getJSONObject(i)
                 if (el.optString("type") != "way") continue
-                val maxspeedRaw = el.optJSONObject("tags")?.optString("maxspeed") ?: continue
+                val tags = el.optJSONObject("tags") ?: continue
+                val maxspeedRaw = tags.optString("maxspeed") ?: continue
                 val kmh = parseMaxspeed(maxspeedRaw) ?: continue
+                val street = tags.optString("name", "")
                 val geom = el.optJSONArray("geometry") ?: continue
                 var minDist = Double.MAX_VALUE
                 var bestSegBearing = Float.NaN
@@ -352,11 +407,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 if (score < bestScore) {
                     bestScore = score
                     best = kmh
+                    bestStreet = if (street.isNotEmpty()) street else null
                 }
             }
-            best
+            WayInfo(best, bestStreet)
         } catch (e: Exception) {
-            null
+            WayInfo(null, null)
         }
     }
 
@@ -416,6 +472,19 @@ class MainActivity : AppCompatActivity(), LocationListener {
             cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
             sin(dLon / 2) * sin(dLon / 2)
         return 637_1000.0 * 2 * asin(sqrt(a))
+    }
+
+    private fun updateDebug() {
+        if (!showDebug) {
+            debugText.visibility = View.GONE
+            return
+        }
+        debugText.visibility = View.VISIBLE
+        val fixAge = if (lastGpsFixTime == 0L) "-"
+        else "${(System.currentTimeMillis() - lastGpsFixTime) / 1000}s"
+        debugText.text = "GPS ±${lastAccuracy.roundToInt()}m | fix ${fixAge}s | " +
+            "raw ${lastRawSpeed.roundToInt()} m/s | limiet: $lastLimitStatus | " +
+            "snelheid ${currentSpeedKmh}"
     }
 
     private fun updateCameraWarning(location: Location) {
