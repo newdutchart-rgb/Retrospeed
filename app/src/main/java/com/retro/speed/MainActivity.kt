@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var vibrator: Vibrator? = null
 
     private lateinit var speedText: TextView
+    private lateinit var streetText: TextView
     private lateinit var limitText: TextView
     private lateinit var cameraText: TextView
     private lateinit var speedPanel: View
@@ -74,6 +75,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         speedText = findViewById(R.id.speedText)
+        streetText = findViewById(R.id.streetText)
         limitText = findViewById(R.id.limitText)
         cameraText = findViewById(R.id.cameraText)
         speedPanel = findViewById(R.id.speedPanel)
@@ -204,11 +206,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
         lastQueryLon = lon
 
         scope.launch {
-            val limit = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
+            val result = withContext(Dispatchers.IO) { fetchSpeedLimit(lat, lon, accuracy, bearing) }
             limitQueryInProgress = false
-            if (limit == null) return@launch
-            currentLimitKmh = limit
-            limitText.text = limit.toString()
+            if (result.limit == null) return@launch
+            currentLimitKmh = result.limit
+            limitText.text = result.limit.toString()
+            result.street?.let { streetText.text = it }
             updateSpeedColors()
         }
     }
@@ -281,7 +284,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
         "https://overpass.private.coffee/api/interpreter"
     )
 
-    private fun fetchSpeedLimit(lat: Double, lon: Double, accuracy: Float, bearing: Float): Int? {
+    private data class WayInfo(val limit: Int?, val street: String?)
+
+    private fun fetchSpeedLimit(
+        lat: Double,
+        lon: Double,
+        accuracy: Float,
+        bearing: Float
+    ): WayInfo {
         val baseRadius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
         val radii = listOf(baseRadius, (baseRadius * 3).coerceAtMost(300))
         for (radius in radii) {
@@ -289,10 +299,10 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
                 "out body geom;"
             val body = overpassQuery(query) ?: continue
-            val limit = parseNearestMaxspeed(body, lat, lon, bearing)
-            if (limit != null) return limit
+            val info = parseNearestWay(body, lat, lon, bearing)
+            if (info.limit != null) return info
         }
-        return null
+        return WayInfo(null, null)
     }
 
     private fun fetchSpeedCameras(lat: Double, lon: Double): List<Pair<Double, Double>> {
@@ -314,17 +324,20 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
     }
 
-    private fun parseNearestMaxspeed(json: String, lat: Double, lon: Double, bearing: Float): Int? {
+    private fun parseNearestWay(json: String, lat: Double, lon: Double, bearing: Float): WayInfo {
         return try {
             val elements = JSONObject(json).getJSONArray("elements")
             var best: Int? = null
+            var bestStreet: String? = null
             var bestScore = Double.MAX_VALUE
             val hasBearing = bearing.isFinite() && bearing != 0.0f
             for (i in 0 until elements.length()) {
                 val el = elements.getJSONObject(i)
                 if (el.optString("type") != "way") continue
-                val maxspeedRaw = el.optJSONObject("tags")?.optString("maxspeed") ?: continue
+                val tags = el.optJSONObject("tags") ?: continue
+                val maxspeedRaw = tags.optString("maxspeed") ?: continue
                 val kmh = parseMaxspeed(maxspeedRaw) ?: continue
+                val street = tags.optString("name", "")
                 val geom = el.optJSONArray("geometry") ?: continue
                 var minDist = Double.MAX_VALUE
                 var bestSegBearing = Float.NaN
@@ -352,11 +365,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 if (score < bestScore) {
                     bestScore = score
                     best = kmh
+                    bestStreet = if (street.isNotEmpty()) street else null
                 }
             }
-            best
+            WayInfo(best, bestStreet)
         } catch (e: Exception) {
-            null
+            WayInfo(null, null)
         }
     }
 

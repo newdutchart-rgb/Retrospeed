@@ -39,6 +39,19 @@
         android:gravity="center">
 
         <TextView
+            android:id="@+id/streetText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:maxWidth="220dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:alpha="0.5"
+            android:textColor="@color/retroCream"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
             android:id="@+id/cameraText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
