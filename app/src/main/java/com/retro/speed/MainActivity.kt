@@ -20,7 +20,6 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +29,15 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -85,6 +93,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var hasNearestCamera = false
     private var cameraBuzzed = false
 
+    private var osmLimit = 50
+    private var cameraLimit = 0
+    private var cameraLimitTime = 0L
+    private val recentSignHits = mutableListOf<Pair<Int, Long>>()
+    private var lastSignAnalysis = 0L
+    private var cameraStarted = false
+
     private val scope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -117,7 +132,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }
 
         currentLimitKmh = savedInstanceState?.getInt("limit", 50) ?: 50
+        osmLimit = currentLimitKmh
         limitText.text = currentLimitKmh.toString()
+        startCameraIfNeeded()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -186,6 +203,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
             startLocationUpdates()
+        }
+        if (requestCode == REQ_CAMERA_PERMISSION &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            cameraStarted = false
+            startCameraIfNeeded()
         }
     }
 
@@ -268,10 +292,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
             }
             updateDebug()
             if (result.limit == null) return@launch
-            currentLimitKmh = result.limit
-            limitText.text = result.limit.toString()
+            osmLimit = result.limit
             result.street?.let { streetText.text = it }
-            updateSpeedColors()
+            applyEffectiveLimit()
         }
     }
 
@@ -504,9 +527,96 @@ class MainActivity : AppCompatActivity(), LocationListener {
         debugText.visibility = View.VISIBLE
         val fixAge = if (lastGpsFixTime == 0L) "-"
         else "${(System.currentTimeMillis() - lastGpsFixTime) / 1000}s"
+        val camAge = if (cameraLimit != 0) "${(System.currentTimeMillis() - cameraLimitTime) / 1000}s" else "-"
         debugText.text = "GPS ±${lastAccuracy.roundToInt()}m | fix ${fixAge}s | " +
-            "raw ${lastRawSpeed.roundToInt()} m/s | limiet: $lastLimitStatus | " +
+            "raw ${lastRawSpeed.roundToInt()} m/s | OSM: $lastLimitStatus | " +
+            "cam: ${if (cameraLimit != 0) "$cameraLimit (${camAge})" else "-"} | " +
             "snelheid ${currentSpeedKmh}"
+    }
+
+    private fun applyEffectiveLimit() {
+        val camFresh = cameraLimit != 0 &&
+            System.currentTimeMillis() - cameraLimitTime < 60_000
+        currentLimitKmh = if (camFresh) cameraLimit else osmLimit
+        limitText.text = currentLimitKmh.toString()
+        updateSpeedColors()
+        updateDebug()
+    }
+
+    private fun startCameraIfNeeded() {
+        if (cameraStarted) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.CAMERA), REQ_CAMERA_PERMISSION
+            )
+            return
+        }
+        cameraStarted = true
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            try {
+                val provider = future.get()
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                analysis.setAnalyzer(ContextCompat.getMainExecutor(this), SignAnalyzer())
+                provider.unbindAll()
+                provider.bindToLifecycle(
+                    this, CameraSelector.DEFAULT_BACK_CAMERA, analysis
+                )
+            } catch (e: Exception) {
+                cameraStarted = false
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    @ExperimentalGetImage
+    private inner class SignAnalyzer : ImageAnalysis.Analyzer {
+        override fun analyze(image: ImageProxy) {
+            val now = System.currentTimeMillis()
+            if (now - lastSignAnalysis < 1000) {
+                image.close()
+                return
+            }
+            lastSignAnalysis = now
+            val mediaImage = image.image
+            if (mediaImage == null) {
+                image.close()
+                return
+            }
+            val input = InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees)
+            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                .process(input)
+                .addOnSuccessListener { result ->
+                    for (block in result.textBlocks) {
+                        for (line in block.lines) {
+                            for (element in line.elements) {
+                                val v = element.text
+                                    .replace("km/u", "")
+                                    .replace("km/h", "")
+                                    .trim()
+                                    .toIntOrNull() ?: continue
+                                if (v in 10..130 && v % 5 == 0) {
+                                    recentSignHits.add(v to now)
+                                }
+                            }
+                        }
+                    }
+                    recentSignHits.removeAll { now - it.second > 20_000 }
+                    val best = recentSignHits
+                        .groupingBy { it.first }
+                        .eachCount()
+                        .maxByOrNull { it.value }
+                    if (best != null && best.value >= 2 && best.key != cameraLimit) {
+                        cameraLimit = best.key
+                        cameraLimitTime = now
+                        applyEffectiveLimit()
+                    }
+                }
+                .addOnCompleteListener { image.close() }
+        }
     }
 
     private fun updateCameraWarning(location: Location) {
@@ -595,5 +705,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     companion object {
         private const val REQ_PERMISSION = 42
+        private const val REQ_CAMERA_PERMISSION = 43
     }
 }
