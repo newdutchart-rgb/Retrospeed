@@ -96,6 +96,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private var osmLimit = 50
     private var cameraLimit = 0
     private var cameraLimitTime = 0L
+    private var cameraConfirmTime = 0L
     private val recentSignHits = mutableListOf<Pair<Int, Long>>()
     private var lastSignAnalysis = 0L
     private var cameraStarted = false
@@ -266,6 +267,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
             maybeQuerySpeedLimit(location.latitude, location.longitude, location.accuracy, location.bearing)
             maybeQuerySpeedCameras(location.latitude, location.longitude)
         }
+        applyEffectiveLimit()
         updateCameraWarning(location)
         updateSpeedColors()
         updateDebug()
@@ -535,8 +537,10 @@ class MainActivity : AppCompatActivity(), LocationListener {
     }
 
     private fun applyEffectiveLimit() {
+        val now = System.currentTimeMillis()
         val camFresh = cameraLimit != 0 &&
-            System.currentTimeMillis() - cameraLimitTime < 60_000
+            now - cameraLimitTime < 60_000 &&
+            (cameraLimit == osmLimit || now - cameraConfirmTime < 15_000)
         currentLimitKmh = if (camFresh) cameraLimit else osmLimit
         limitText.text = currentLimitKmh.toString()
         updateSpeedColors()
@@ -609,9 +613,12 @@ class MainActivity : AppCompatActivity(), LocationListener {
                         .groupingBy { it.first }
                         .eachCount()
                         .maxByOrNull { it.value }
-                    if (best != null && best.value >= 2 && best.key != cameraLimit) {
-                        cameraLimit = best.key
-                        cameraLimitTime = now
+                    if (best != null && best.value >= 2) {
+                        if (best.key != cameraLimit) {
+                            cameraLimit = best.key
+                            cameraLimitTime = now
+                        }
+                        cameraConfirmTime = now
                         applyEffectiveLimit()
                     }
                 }
