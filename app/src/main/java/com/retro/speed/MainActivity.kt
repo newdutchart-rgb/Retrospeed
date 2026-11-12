@@ -489,9 +489,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private fun parseNearestWay(json: String, lat: Double, lon: Double, bearing: Float): WayInfo {
         return try {
             val elements = JSONObject(json).getJSONArray("elements")
-            var best: Int? = null
-            var bestStreet: String? = null
-            var bestScore = Double.MAX_VALUE
+            val candidates = mutableListOf<Triple<Int, String?, Double>>()
             val hasBearing = bearing.isFinite() && bearing != 0.0f
             for (i in 0 until elements.length()) {
                 val el = elements.getJSONObject(i)
@@ -524,13 +522,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
                     val diff = bearingDiffDeg(bearing, bestSegBearing)
                     if (diff > 60.0) score *= 3.0
                 }
-                if (score < bestScore) {
-                    bestScore = score
-                    best = kmh
-                    bestStreet = if (street.isNotEmpty()) street else null
-                }
+                candidates.add(Triple(kmh, if (street.isNotEmpty()) street else null, score))
             }
-            WayInfo(best, bestStreet)
+            if (candidates.isEmpty()) return WayInfo(null, null)
+            val bestScore = candidates.minOf { it.third }
+            val near = candidates.filter { it.third <= bestScore + 15.0 }
+            val safest = near.minByOrNull { it.first } ?: return WayInfo(null, null)
+            WayInfo(safest.first, safest.second)
         } catch (e: Exception) {
             WayInfo(null, null)
         }
