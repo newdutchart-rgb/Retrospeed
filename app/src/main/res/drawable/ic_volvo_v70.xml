@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="80dp"
+    android:viewportWidth="200"
+    android:viewportHeight="80">
+
+    <!-- carrosserie: stationwagen-profiel -->
+    <path
+        android:fillColor="#B8BCC2"
+        android:pathData="M6,56 L6,46 Q6,40 14,39 L52,36 L74,18 Q78,13 86,13 L148,13 Q156,13 160,19 L176,33 Q192,37 193,47 L193,56 L172,56 A13,13 0 0,0 146,56 L62,56 A13,13 0 0,0 36,56 Z" />
+
+    <!-- donkere schaduw onder de deurlijn -->
+    <path
+        android:fillColor="#9AA0A6"
+        android:pathData="M6,52 L193,52 L193,56 L172,56 A13,13 0 0,0 146,56 L62,56 A13,13 0 0,0 36,56 L6,56 Z" />
+
+    <!-- voorruit en zijramen -->
+    <path
+        android:fillColor="#3A3F45"
+        android:pathData="M79,19 L60,35 L108,35 L108,19 Z" />
+    <path
+        android:fillColor="#3A3F45"
+        android:pathData="M114,19 L114,35 L150,35 L156,29 L156,19 Z" />
+
+    <!-- wielarchen -->
+    <path
+        android:fillColor="#2C1B14"
+        android:pathData="M49,56 m-14,0 a14,14 0 1,1 28,0 a14,14 0 1,1 -28,0" />
+    <path
+        android:fillColor="#2C1B14"
+        android:pathData="M159,56 m-14,0 a14,14 0 1,1 28,0 a14,14 0 1,1 -28,0" />
+
+    <!-- wielen -->
+    <path
+        android:fillColor="#1B1B1B"
+        android:pathData="M49,56 m-10,0 a10,10 0 1,1 20,0 a10,10 0 1,1 -20,0" />
+    <path
+        android:fillColor="#1B1B1B"
+        android:pathData="M159,56 m-10,0 a10,10 0 1,1 20,0 a10,10 0 1,1 -20,0" />
+    <path
+        android:fillColor="#8D949C"
+        android:pathData="M49,56 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0" />
+    <path
+        android:fillColor="#8D949C"
+        android:pathData="M159,56 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0" />
+
+    <!-- koplamp en staartlamp -->
+    <path
+        android:fillColor="#FFF3C4"
+        android:pathData="M8,42 L16,41 L16,46 L8,46 Z" />
+    <path
+        android:fillColor="#E64A19"
+        android:pathData="M186,42 L193,43 L193,48 L186,48 Z" />
+
+    <!-- Volvo-grille streep -->
+    <path
+        android:fillColor="#6E7479"
+        android:pathData="M8,38 L20,37 L20,40 L8,40 Z" />
+</vector>

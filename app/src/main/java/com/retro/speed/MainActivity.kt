@@ -17,6 +17,11 @@ import android.os.VibratorManager
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.widget.ImageView
+import kotlinx.coroutines.delay
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -77,6 +82,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var debugText: TextView
     private lateinit var rootView: View
     private lateinit var mapView: MapView
+    private lateinit var carView: ImageView
     private var lastCenterLat = 0.0
     private var lastCenterLon = 0.0
 
@@ -123,6 +129,14 @@ class MainActivity : AppCompatActivity(), LocationListener {
         rootView = findViewById(R.id.rootView)
         mapView = findViewById(R.id.mapView)
         rootView.setOnClickListener { showDebug = !showDebug; updateDebug() }
+
+        carView = findViewById(R.id.carView)
+        scope.launch {
+            while (true) {
+                delay(kotlin.random.Random.nextLong(20_000L, 45_000L))
+                driveCar()
+            }
+        }
 
         Configuration.getInstance().userAgentValue = "RetroSpeed/1.0"
         mapView.setTileSource(TileSourceFactory.MAPNIK)
@@ -590,6 +604,32 @@ class MainActivity : AppCompatActivity(), LocationListener {
             cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
             sin(dLon / 2) * sin(dLon / 2)
         return 637_1000.0 * 2 * asin(sqrt(a))
+    }
+
+    private fun driveCar() {
+        val wpx = resources.displayMetrics.widthPixels.toFloat()
+        val carW = carView.width.coerceAtLeast(300).toFloat()
+        carView.visibility = View.VISIBLE
+
+        val bob = ObjectAnimator.ofFloat(carView, "translationY", 0f, -5f).apply {
+            duration = 180
+            repeatCount = ObjectAnimator.INFINITE
+            repeatMode = ObjectAnimator.REVERSE
+        }
+        bob.start()
+
+        val drive = ObjectAnimator.ofFloat(carView, "translationX", -carW, wpx).apply {
+            duration = 9_000
+            interpolator = LinearInterpolator()
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    carView.visibility = View.INVISIBLE
+                    bob.cancel()
+                    carView.translationY = 0f
+                }
+            })
+        }
+        drive.start()
     }
 
     private fun updateDebug() {
