@@ -78,14 +78,14 @@
 
         <TextView
             android:id="@+id/limitText"
-            android:layout_width="96dp"
-            android:layout_height="96dp"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
             android:layout_gravity="center_horizontal"
             android:gravity="center"
             android:background="@drawable/bg_limit_circle"
             android:text="50"
             android:textColor="@color/retroCream"
-            android:textSize="36sp"
+            android:textSize="28sp"
             android:textStyle="bold"
             android:fontFamily="monospace" />
 
