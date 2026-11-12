@@ -26,12 +26,16 @@
             android:textSize="12sp"
             android:visibility="gone" />
 
-        <LinearLayout
-            android:id="@+id/speedPanel"
+        <View
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginBottom="24dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:id="@+id/speedPanel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
             android:orientation="vertical"
             android:gravity="center"
             android:padding="12dp"
@@ -52,6 +56,11 @@
                 android:shadowDy="4"
                 android:shadowRadius="8" />
         </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
         <TextView
             android:id="@+id/streetText"
