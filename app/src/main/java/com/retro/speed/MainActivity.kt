@@ -439,8 +439,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
 
     private fun cacheLimit(lat: Double, lon: Double, info: WayInfo) {
         if (info.limit == null) return
+        val value = info.limit.toString() + "|" + (info.street ?: "")
         limitCache.edit()
-            .putString(cacheKey(lat, lon), "${info.limit}|${info.street ?: "}")
+            .putString(cacheKey(lat, lon), value)
             .apply()
     }
 
