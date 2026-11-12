@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import android.util.Size
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -100,6 +101,11 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private val recentSignHits = mutableListOf<Pair<Int, Long>>()
     private var lastSignAnalysis = 0L
     private var cameraStarted = false
+
+    private var tomtomKey = ""
+    private val limitCache by lazy {
+        getSharedPreferences("retro_limit_cache", Context.MODE_PRIVATE)
+    }
 
     private val scope = CoroutineScope(Dispatchers.Main)
 
@@ -378,6 +384,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
     ): WayInfo {
         val baseRadius = maxOf(30f, accuracy * 2f + 15f).roundToInt()
         val radii = listOf(baseRadius, (baseRadius * 3).coerceAtMost(300))
+        if (tomtomKey.isNotEmpty()) {
+            val t = fetchTomTomLimit(lat, lon)
+            if (t != null) {
+                cacheLimit(lat, lon, t)
+                return t
+            }
+        }
         for (radius in radii) {
             val query = "[out:json][timeout:10];" +
                 "way(around:$radius,$lat,$lon)[\"highway\"][\"highway\"!~\"^(footway|path|cycleway|pedestrian|steps|track|corridor)$\"][\"maxspeed\"];" +
@@ -389,9 +402,68 @@ class MainActivity : AppCompatActivity(), LocationListener {
             }
             lastNetError = false
             val info = parseNearestWay(body, lat, lon, bearing)
-            if (info.limit != null) return info
+            if (info.limit != null) {
+                cacheLimit(lat, lon, info)
+                return info
+            }
         }
-        return WayInfo(null, null)
+        val cached = cachedLimit(lat, lon)
+        lastNetError = cached == null
+        return cached ?: WayInfo(null, null)
+    }
+
+    private fun fetchTomTomLimit(lat: Double, lon: Double): WayInfo? {
+        return try {
+            val url = URL(
+                "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json" +
+                    "?point=$lat,$lon&key=$tomtomKey"
+            )
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 8_000
+            conn.setRequestProperty("User-Agent", "RetroSpeed/1.0")
+            if (conn.responseCode != 200) {
+                conn.disconnect()
+                return null
+            }
+            val body = conn.inputStream.bufferedReader().use(BufferedReader::readText)
+            conn.disconnect()
+            val speed = JSONObject(body)
+                .getJSONObject("flowSegmentData")
+                .optInt("speedLimit", -1)
+            if (speed in 10..150) WayInfo(speed, null) else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun cacheLimit(lat: Double, lon: Double, info: WayInfo) {
+        if (info.limit == null) return
+        limitCache.edit()
+            .putString(cacheKey(lat, lon), "${info.limit}|${info.street ?: "}")
+            .apply()
+    }
+
+    private fun cacheKey(lat: Double, lon: Double): String =
+        "%.3f,%.3f".format(
+            Math.round(lat * 1000.0) / 1000.0,
+            Math.round(lon * 1000.0) / 1000.0
+        )
+
+    private fun cachedLimit(lat: Double, lon: Double): WayInfo? {
+        for (dLat in intArrayOf(-1, 0, 1)) {
+            for (dLon in intArrayOf(-1, 0, 1)) {
+                val key = cacheKey(
+                    Math.round(lat * 1000.0) / 1000.0 + dLat * 0.001,
+                    Math.round(lon * 1000.0) / 1000.0 + dLon * 0.001
+                )
+                val raw = limitCache.getString(key, null) ?: continue
+                val parts = raw.split("|", limit = 2)
+                val limit = parts.getOrNull(0)?.toIntOrNull() ?: continue
+                return WayInfo(limit, parts.getOrNull(1)?.ifEmpty { null })
+            }
+        }
+        return null
     }
 
     private fun fetchSpeedCameras(lat: Double, lon: Double): List<Pair<Double, Double>> {
@@ -563,6 +635,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
             try {
                 val provider = future.get()
                 val analysis = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(1920, 1080))
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                 analysis.setAnalyzer(ContextCompat.getMainExecutor(this), SignAnalyzer())
@@ -580,7 +653,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private inner class SignAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(image: ImageProxy) {
             val now = System.currentTimeMillis()
-            if (now - lastSignAnalysis < 1000) {
+            if (now - lastSignAnalysis < 500) {
                 image.close()
                 return
             }
