@@ -100,12 +100,4 @@
 
     </LinearLayout>
 
-    <ImageView
-        android:id="@+id/carView"
-        android:layout_width="160dp"
-        android:layout_height="64dp"
-        android:layout_gravity="center_vertical"
-        android:src="@drawable/ic_volvo_v70"
-        android:visibility="invisible" />
-
 </FrameLayout>
