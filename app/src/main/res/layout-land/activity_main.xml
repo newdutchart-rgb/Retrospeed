@@ -44,6 +44,8 @@
                 android:id="@+id/speedText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minWidth="180sp"
+                android:gravity="center"
                 android:text="0"
                 android:textColor="@color/retroAmber"
                 android:textSize="96sp"
