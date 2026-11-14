@@ -604,10 +604,16 @@ class MainActivity : AppCompatActivity(), LocationListener {
         val fixAge = if (lastGpsFixTime == 0L) "-"
         else "${(System.currentTimeMillis() - lastGpsFixTime) / 1000}s"
         val camAge = if (cameraLimit != 0) "${(System.currentTimeMillis() - cameraLimitTime) / 1000}s" else "-"
+        val camStatus = when {
+            !cameraStarted -> "NOG NIET GESTART"
+            cameraLastError.isNotEmpty() -> "FOUT: $cameraLastError"
+            cameraFrames == 0 -> "GEEN BEELD (permissie?)"
+            else -> "frames $cameraFrames, hits $cameraHitsRaw, " +
+                if (cameraLimit != 0) "$cameraLimit (${camAge})" else "nog geen limiet"
+        }
         debugText.text = "GPS ±${lastAccuracy.roundToInt()}m | fix ${fixAge}s | " +
             "raw ${lastRawSpeed.roundToInt()} m/s | OSM: $lastLimitStatus | " +
-            "cam: ${if (cameraLimit != 0) "$cameraLimit (${camAge})" else "-"} | " +
-            "snelheid ${currentSpeedKmh}"
+            "cam: $camStatus | snelheid ${currentSpeedKmh}"
     }
 
     private fun applyEffectiveLimit() {
@@ -651,6 +657,13 @@ class MainActivity : AppCompatActivity(), LocationListener {
         }, ContextCompat.getMainExecutor(this))
     }
 
+    private val recognizer by lazy {
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+    private var cameraFrames = 0
+    private var cameraHitsRaw = 0
+    private var cameraLastError = ""
+
     @ExperimentalGetImage
     private inner class SignAnalyzer : ImageAnalysis.Analyzer {
         override fun analyze(image: ImageProxy) {
@@ -666,21 +679,19 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 return
             }
             val input = InputImage.fromMediaImage(mediaImage, image.imageInfo.rotationDegrees)
-            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-                .process(input)
+            cameraFrames++
+            recognizer.process(input)
                 .addOnSuccessListener { result ->
-                    for (block in result.textBlocks) {
-                        for (line in block.lines) {
-                            for (element in line.elements) {
-                                val v = element.text
-                                    .replace("km/u", "")
-                                    .replace("km/h", "")
-                                    .trim()
-                                    .toIntOrNull() ?: continue
-                                if (v in 10..130 && v % 5 == 0) {
-                                    recentSignHits.add(v to now)
-                                }
-                            }
+                    cameraLastError = ""
+                    val text = result.text
+                    val tokens = Regex("\\d{1,3}").findAll(
+                        text.replace("km/u", " ").replace("km/h", " ")
+                    )
+                    tokens.forEach { m ->
+                        val v = m.value.toIntOrNull() ?: return@forEach
+                        if (v in 10..130 && v % 5 == 0) {
+                            cameraHitsRaw++
+                            recentSignHits.add(v to now)
                         }
                     }
                     recentSignHits.removeAll { now - it.second > 20_000 }
@@ -696,10 +707,15 @@ class MainActivity : AppCompatActivity(), LocationListener {
                         cameraConfirmTime = now
                         applyEffectiveLimit()
                     }
+                    updateDebug()
+                }
+                .addOnFailureListener { e ->
+                    cameraLastError = e.message ?: "fout"
                 }
                 .addOnCompleteListener { image.close() }
         }
     }
+
 
     private fun updateCameraWarning(location: Location) {
         if (!hasNearestCamera) {
