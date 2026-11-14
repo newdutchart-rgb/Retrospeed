@@ -742,7 +742,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private fun updateSpeedColors() {
         val over = currentSpeedKmh > currentLimitKmh
         if (over) {
-            speedPanel.setBackgroundResource(R.drawable.bg_speed_panel_over)
             speedText.setTextColor(Color.parseColor("#FF6E40"))
             if (!wasOverLimit) {
                 wasOverLimit = true
@@ -751,7 +750,6 @@ class MainActivity : AppCompatActivity(), LocationListener {
             flashOn = !flashOn
             speedPanel.alpha = if (flashOn) 1f else 0.75f
         } else {
-            speedPanel.setBackgroundResource(R.drawable.bg_speed_panel)
             speedPanel.alpha = 1f
             if (currentSpeedKmh > 0) {
                 speedText.setTextColor(Color.parseColor("#9CCC65"))

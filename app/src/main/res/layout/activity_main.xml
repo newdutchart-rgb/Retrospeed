@@ -38,9 +38,7 @@
             android:layout_gravity="center_horizontal"
             android:orientation="vertical"
             android:gravity="center"
-            android:padding="12dp"
-            android:background="@drawable/bg_speed_panel"
-            android:elevation="8dp">
+            android:padding="12dp">
 
             <TextView
                 android:id="@+id/speedText"
