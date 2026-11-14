@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
     private lateinit var limitText: TextView
     private lateinit var cameraText: TextView
     private lateinit var speedPanel: View
+    private lateinit var redOverlay: View
 
     private var currentLimitKmh = 50
     private var currentSpeedKmh = 0
@@ -120,6 +121,7 @@ class MainActivity : AppCompatActivity(), LocationListener {
         cameraText = findViewById(R.id.cameraText)
         debugText = findViewById(R.id.debugText)
         speedPanel = findViewById(R.id.speedPanel)
+        redOverlay = findViewById(R.id.redOverlay)
         rootView = findViewById(R.id.rootView)
         mapView = findViewById(R.id.mapView)
         rootView.setOnClickListener { showDebug = !showDebug; updateDebug() }
@@ -748,9 +750,9 @@ class MainActivity : AppCompatActivity(), LocationListener {
                 buzz()
             }
             flashOn = !flashOn
-            speedPanel.alpha = if (flashOn) 1f else 0.75f
+            redOverlay.alpha = if (flashOn) 0.45f else 0.25f
         } else {
-            speedPanel.alpha = 1f
+            redOverlay.alpha = 0f
             if (currentSpeedKmh > 0) {
                 speedText.setTextColor(Color.parseColor("#9CCC65"))
             } else {
